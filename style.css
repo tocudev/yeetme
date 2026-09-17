@@ -1,53 +1,55 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-body {
-  background: #1a1a2e;
-  color: #fff;
-  font-family: system-ui, -apple-system, sans-serif;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+html, body {
+  width: 100%;
+  height: 100%;
   overflow: hidden;
-}
-
-#game {
-  position: relative;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  background-color: #ffffff;
+  background-image:
+    radial-gradient(#d0d0d0 2px, transparent 2px);
+  background-size: 28px 28px;
+  background-position: 0 0;
+  font-family: 'Courier New', monospace;
+  color: #000;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 
 canvas {
   display: block;
-  background: linear-gradient(#87ceeb 0%, #87ceeb 70%, #7ec850 70%, #5a9e3a 100%);
+  width: 100vw;
+  height: 100vh;
   cursor: grab;
 }
 
 canvas:active { cursor: grabbing; }
 
 #hud {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  font-size: 24px;
+  position: fixed;
+  top: 24px;
+  left: 24px;
+  font-size: 22px;
   font-weight: 700;
-  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+  letter-spacing: 1px;
   pointer-events: none;
 }
 
 #best {
-  font-size: 14px;
-  opacity: 0.8;
+  font-size: 13px;
+  opacity: 0.5;
   margin-top: 4px;
+  font-weight: 400;
 }
 
 #instructions {
-  position: absolute;
-  bottom: 16px;
+  position: fixed;
+  bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 14px;
-  opacity: 0.7;
+  font-size: 12px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  opacity: 0.4;
   pointer-events: none;
 }
