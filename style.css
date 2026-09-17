@@ -1,0 +1,53 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #1a1a2e;
+  color: #fff;
+  font-family: system-ui, -apple-system, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
+}
+
+#game {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+canvas {
+  display: block;
+  background: linear-gradient(#87ceeb 0%, #87ceeb 70%, #7ec850 70%, #5a9e3a 100%);
+  cursor: grab;
+}
+
+canvas:active { cursor: grabbing; }
+
+#hud {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  font-size: 24px;
+  font-weight: 700;
+  text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+#best {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-top: 4px;
+}
+
+#instructions {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  opacity: 0.7;
+  pointer-events: none;
+}
