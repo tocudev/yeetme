@@ -5,10 +5,8 @@ html, body {
   height: 100%;
   overflow: hidden;
   background-color: #ffffff;
-  background-image:
-    radial-gradient(#d0d0d0 2px, transparent 2px);
+  background-image: radial-gradient(#d0d0d0 2px, transparent 2px);
   background-size: 28px 28px;
-  background-position: 0 0;
   font-family: 'Courier New', monospace;
   color: #000;
   user-select: none;
@@ -28,18 +26,20 @@ canvas:active { cursor: grabbing; }
 #hud {
   position: fixed;
   top: 24px;
-  left: 24px;
-  font-size: 22px;
+  right: 28px;
+  text-align: right;
+  font-size: 26px;
   font-weight: 700;
   letter-spacing: 1px;
   pointer-events: none;
 }
 
 #best {
-  font-size: 13px;
-  opacity: 0.5;
+  font-size: 12px;
+  opacity: 0.45;
   margin-top: 4px;
   font-weight: 400;
+  letter-spacing: 1px;
 }
 
 #instructions {
@@ -47,9 +47,10 @@ canvas:active { cursor: grabbing; }
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
-  font-size: 12px;
+  font-size: 11px;
   letter-spacing: 2px;
   text-transform: uppercase;
   opacity: 0.4;
   pointer-events: none;
+  white-space: nowrap;
 }
