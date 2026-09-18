@@ -6,15 +6,18 @@ const bestEl = document.getElementById('best');
 let W, H, GROUND_Y;
 const PIXELS_PER_METER = 40;
 const GRAVITY = 0.5;
-const MAX_PULL = 260;          // was 130 — now much longer
-const POWER = 0.14;            // slightly lower so longer pull doesn't make it insane
+const MAX_PULL = 260;
+const POWER = 0.14;
 const FLICK_BOOST = 0.06;
 const FLICK_MAX = 0.35;
-const LINE_MAX_WIDTH = 6;      // line starts this thick
-const LINE_MIN_WIDTH = 0.5;    // and ends this thin
+const LINE_MAX_WIDTH = 6;
+const LINE_MIN_WIDTH = 0.5;
+
+// cat start height above the ground
+const CAT_START_HEIGHT = 220;
 
 let cat = { x: 0, y: 0, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
-let houseX = 0;
+let startX = 0;
 
 let dragging = false;
 let dragStart = null;
@@ -24,16 +27,14 @@ let mouseHistory = [];
 let thrown = false;
 let landed = false;
 let maxX = 0;
-let startX = 0;
 let cameraX = 0;
+
+// wings
+let wingsAttached = true;
+let fallingWings = null; // { x, y, vx, vy, rot, vrot }
 
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
-
-// Cat house dimensions — tall + wide, cat sits on the roof peak
-const HOUSE_W = 140;
-const HOUSE_H = 150;
-const ROOF_H = 70;
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -46,24 +47,24 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   GROUND_Y = H * 0.85;
   startX = W * 0.35;
-  houseX = startX;
   if (!thrown && !landed) {
     cat.x = startX;
-    // sit exactly on the roof peak
-    cat.y = GROUND_Y - HOUSE_H - ROOF_H + 6;
+    cat.y = GROUND_Y - CAT_START_HEIGHT;
   }
 }
 
 function reset() {
   cat = {
     x: startX,
-    y: GROUND_Y - HOUSE_H - ROOF_H + 6,
+    y: GROUND_Y - CAT_START_HEIGHT,
     vx: 0, vy: 0, r: 26, rot: 0, vrot: 0
   };
   thrown = false;
   landed = false;
   maxX = startX;
   cameraX = 0;
+  wingsAttached = true;
+  fallingWings = null;
   distanceEl.textContent = '0.0 m';
 }
 
@@ -80,13 +81,27 @@ function onDown(e) {
   if (thrown && landed) { reset(); return; }
   if (thrown) return;
   const p = getPos(e);
-  const dx = p.x - (cat.x - cameraX);
+  const catScreenX = cat.x - cameraX;
+  const dx = p.x - catScreenX;
   const dy = p.y - cat.y;
   if (Math.hypot(dx, dy) < cat.r * 2.4) {
     dragging = true;
     dragStart = { x: cat.x, y: cat.y };
     dragCurrent = p;
     mouseHistory = [{ x: p.x, y: p.y, t: performance.now() }];
+
+    // Wings fall off on grab
+    if (wingsAttached) {
+      wingsAttached = false;
+      fallingWings = {
+        x: cat.x - cameraX,
+        y: cat.y - 6,
+        vx: (Math.random() - 0.5) * 2,
+        vy: -1.5,
+        rot: 0,
+        vrot: (Math.random() - 0.5) * 0.2,
+      };
+    }
   }
 }
 
@@ -96,7 +111,7 @@ function onMove(e) {
   mouseHistory.push({ x: dragCurrent.x, y: dragCurrent.y, t: performance.now() });
   if (mouseHistory.length > 10) mouseHistory.shift();
 
-  // Pull is relative to the cat's ORIGINAL position so it can go way back
+  // Pull is anchored to the cat's ORIGINAL world position
   const dx = dragCurrent.x - (dragStart.x - cameraX);
   const dy = dragCurrent.y - dragStart.y;
   const dist = Math.hypot(dx, dy);
@@ -176,6 +191,30 @@ function update() {
     const targetCam = Math.max(0, cat.x - W * 0.4);
     cameraX += (targetCam - cameraX) * 0.12;
   }
+
+  // Falling wings animation
+  if (fallingWings) {
+    fallingWings.vy += 0.4;
+    fallingWings.x += fallingWings.vx;
+    fallingWings.y += fallingWings.vy;
+    fallingWings.rot += fallingWings.vrot;
+
+    // account for camera drift
+    fallingWings.x -= (cameraX - (fallingWings._lastCam || cameraX));
+    fallingWings._lastCam = cameraX;
+
+    // land on ground
+    if (fallingWings.y > GROUND_Y - 4) {
+      fallingWings.y = GROUND_Y - 4;
+      fallingWings.vy = 0;
+      fallingWings.vx *= 0.6;
+      fallingWings.vrot *= 0.5;
+      if (Math.abs(fallingWings.vx) < 0.05 && Math.abs(fallingWings.vrot) < 0.01) {
+        fallingWings.vx = 0;
+        fallingWings.vrot = 0;
+      }
+    }
+  }
 }
 
 function drawCat(x, y, rot) {
@@ -187,19 +226,23 @@ function drawCat(x, y, rot) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
+  // body
   ctx.beginPath();
   ctx.ellipse(0, 6, 24, 18, 0, 0, Math.PI * 2);
   ctx.stroke();
 
+  // tail
   ctx.beginPath();
   ctx.moveTo(22, 4);
   ctx.quadraticCurveTo(42, -6, 36, -22);
   ctx.stroke();
 
+  // head
   ctx.beginPath();
   ctx.arc(0, -16, 15, 0, Math.PI * 2);
   ctx.stroke();
 
+  // ears
   ctx.beginPath();
   ctx.moveTo(-12, -26); ctx.lineTo(-16, -40); ctx.lineTo(-3, -30);
   ctx.stroke();
@@ -207,17 +250,20 @@ function drawCat(x, y, rot) {
   ctx.moveTo(12, -26); ctx.lineTo(16, -40); ctx.lineTo(3, -30);
   ctx.stroke();
 
+  // eyes
   ctx.beginPath();
   ctx.arc(-5, -18, 1.8, 0, Math.PI * 2);
   ctx.arc(5, -18, 1.8, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
   ctx.fill();
 
+  // nose
   ctx.beginPath();
   ctx.moveTo(-2, -12); ctx.lineTo(2, -12); ctx.lineTo(0, -9);
   ctx.closePath();
   ctx.fill();
 
+  // whiskers
   ctx.beginPath();
   ctx.moveTo(-8, -10); ctx.lineTo(-20, -12);
   ctx.moveTo(-8, -7);  ctx.lineTo(-20, -5);
@@ -225,66 +271,64 @@ function drawCat(x, y, rot) {
   ctx.moveTo(8, -7);   ctx.lineTo(20, -5);
   ctx.stroke();
 
+  // legs
   ctx.beginPath();
   ctx.moveTo(-12, 22); ctx.lineTo(-12, 28);
   ctx.moveTo(12, 22);  ctx.lineTo(12, 28);
   ctx.stroke();
 
+  // wings (only if attached)
+  if (wingsAttached) {
+    drawWings(0, -6, 0);
+  }
+
   ctx.restore();
 }
 
-function drawHouse(x) {
-  const bx = x - HOUSE_W / 2;
-  const bodyTop = GROUND_Y - HOUSE_H;
-  const roofPeakY = bodyTop - ROOF_H;
-
+// draws a single pair of wings centered at (0,0), rotated
+function drawWings(cx, cy, rot) {
   ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
   ctx.strokeStyle = '#000';
-  ctx.lineWidth = 3;
+  ctx.lineWidth = 2.5;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // body (walls)
-  ctx.strokeRect(bx, bodyTop, HOUSE_W, HOUSE_H);
-
-  // roof
+  // left wing
   ctx.beginPath();
-  ctx.moveTo(bx - 14, bodyTop);
-  ctx.lineTo(x, roofPeakY);
-  ctx.lineTo(bx + HOUSE_W + 14, bodyTop);
+  ctx.moveTo(-10, -4);
+  ctx.quadraticCurveTo(-34, -22, -40, -2);
+  ctx.quadraticCurveTo(-32, 2, -10, 4);
   ctx.stroke();
 
-  // door
-  const doorW = 40;
-  const doorH = 70;
+  // feather detail left
   ctx.beginPath();
-  ctx.rect(x - doorW / 2, GROUND_Y - doorH, doorW, doorH);
+  ctx.moveTo(-20, -12);
+  ctx.quadraticCurveTo(-26, -6, -24, 0);
   ctx.stroke();
 
-  // door knob
+  // right wing
   ctx.beginPath();
-  ctx.arc(x + doorW / 2 - 8, GROUND_Y - doorH / 2, 2.5, 0, Math.PI * 2);
-  ctx.fillStyle = '#000';
-  ctx.fill();
-
-  // round window on roof
-  ctx.beginPath();
-  ctx.arc(x, bodyTop - ROOF_H * 0.45, 12, 0, Math.PI * 2);
+  ctx.moveTo(10, -4);
+  ctx.quadraticCurveTo(34, -22, 40, -2);
+  ctx.quadraticCurveTo(32, 2, 10, 4);
   ctx.stroke();
 
-  // window cross
+  // feather detail right
   ctx.beginPath();
-  ctx.moveTo(x - 12, bodyTop - ROOF_H * 0.45);
-  ctx.lineTo(x + 12, bodyTop - ROOF_H * 0.45);
-  ctx.moveTo(x, bodyTop - ROOF_H * 0.45 - 12);
-  ctx.lineTo(x, bodyTop - ROOF_H * 0.45 + 12);
+  ctx.moveTo(20, -12);
+  ctx.quadraticCurveTo(26, -6, 24, 0);
   ctx.stroke();
 
-  // two square windows on the walls
-  const winY = bodyTop + 25;
-  ctx.strokeRect(bx + 18, winY, 26, 26);
-  ctx.strokeRect(bx + HOUSE_W - 44, winY, 26, 26);
+  ctx.restore();
+}
 
+function drawFallingWings(w) {
+  ctx.save();
+  ctx.translate(w.x, w.y);
+  ctx.rotate(w.rot);
+  drawWings(0, 0, 0);
   ctx.restore();
 }
 
@@ -292,12 +336,8 @@ function drawPullLine() {
   if (!dragging || !dragCurrent) return;
 
   const catScreenX = cat.x - cameraX;
-  const dx = catScreenX - (dragStart.x - cameraX);
-  const dy = cat.y - dragStart.y;
-  const pullDist = Math.hypot(dx, dy);
+  const pullDist = Math.hypot(dragCurrent.x - catScreenX, dragCurrent.y - cat.y);
   const t = Math.min(1, pullDist / MAX_PULL);
-
-  // Line gets THINNER as you pull further
   const lineWidth = LINE_MAX_WIDTH - (LINE_MAX_WIDTH - LINE_MIN_WIDTH) * t;
 
   ctx.save();
@@ -309,7 +349,6 @@ function drawPullLine() {
   ctx.lineTo(dragCurrent.x, dragCurrent.y);
   ctx.stroke();
 
-  // small anchor dot at the grab point
   ctx.beginPath();
   ctx.arc(dragCurrent.x, dragCurrent.y, 3, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
@@ -365,7 +404,7 @@ function drawGround() {
 function draw() {
   ctx.clearRect(0, 0, W, H);
   drawGround();
-  drawHouse(houseX - cameraX);
+  if (fallingWings) drawFallingWings(fallingWings);
   drawPullLine();
   drawAimLine();
   drawCat(cat.x - cameraX, cat.y, cat.rot);
