@@ -6,10 +6,12 @@ const bestEl = document.getElementById('best');
 let W, H, GROUND_Y;
 const PIXELS_PER_METER = 40;
 const GRAVITY = 0.5;
-const MAX_PULL = 130;
-const POWER = 0.18;
-const FLICK_BOOST = 0.06; // extra power per pixel of recent mouse speed
+const MAX_PULL = 260;          // was 130 — now much longer
+const POWER = 0.14;            // slightly lower so longer pull doesn't make it insane
+const FLICK_BOOST = 0.06;
 const FLICK_MAX = 0.35;
+const LINE_MAX_WIDTH = 6;      // line starts this thick
+const LINE_MIN_WIDTH = 0.5;    // and ends this thin
 
 let cat = { x: 0, y: 0, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
 let houseX = 0;
@@ -17,7 +19,7 @@ let houseX = 0;
 let dragging = false;
 let dragStart = null;
 let dragCurrent = null;
-let mouseHistory = []; // {x, y, t} for flick detection
+let mouseHistory = [];
 
 let thrown = false;
 let landed = false;
@@ -28,6 +30,11 @@ let cameraX = 0;
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
 
+// Cat house dimensions — tall + wide, cat sits on the roof peak
+const HOUSE_W = 140;
+const HOUSE_H = 150;
+const ROOF_H = 70;
+
 function resize() {
   const dpr = window.devicePixelRatio || 1;
   W = window.innerWidth;
@@ -37,17 +44,22 @@ function resize() {
   canvas.style.width = W + 'px';
   canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  GROUND_Y = H * 0.78;
-  startX = W * 0.3;
+  GROUND_Y = H * 0.85;
+  startX = W * 0.35;
   houseX = startX;
   if (!thrown && !landed) {
     cat.x = startX;
-    cat.y = GROUND_Y - cat.r - 40;
+    // sit exactly on the roof peak
+    cat.y = GROUND_Y - HOUSE_H - ROOF_H + 6;
   }
 }
 
 function reset() {
-  cat = { x: startX, y: GROUND_Y - 26 - 40, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
+  cat = {
+    x: startX,
+    y: GROUND_Y - HOUSE_H - ROOF_H + 6,
+    vx: 0, vy: 0, r: 26, rot: 0, vrot: 0
+  };
   thrown = false;
   landed = false;
   maxX = startX;
@@ -70,7 +82,7 @@ function onDown(e) {
   const p = getPos(e);
   const dx = p.x - (cat.x - cameraX);
   const dy = p.y - cat.y;
-  if (Math.hypot(dx, dy) < cat.r * 2.2) {
+  if (Math.hypot(dx, dy) < cat.r * 2.4) {
     dragging = true;
     dragStart = { x: cat.x, y: cat.y };
     dragCurrent = p;
@@ -84,7 +96,8 @@ function onMove(e) {
   mouseHistory.push({ x: dragCurrent.x, y: dragCurrent.y, t: performance.now() });
   if (mouseHistory.length > 10) mouseHistory.shift();
 
-  const dx = dragCurrent.x - dragStart.x;
+  // Pull is relative to the cat's ORIGINAL position so it can go way back
+  const dx = dragCurrent.x - (dragStart.x - cameraX);
   const dy = dragCurrent.y - dragStart.y;
   const dist = Math.hypot(dx, dy);
   const clamped = Math.min(dist, MAX_PULL);
@@ -101,7 +114,6 @@ function onUp() {
   const dy = cat.y - dragStart.y;
   if (Math.hypot(dx, dy) < 5) { mouseHistory = []; return; }
 
-  // Flick detection: distance traveled in last ~80ms
   let flickSpeed = 0;
   if (mouseHistory.length >= 2) {
     const now = performance.now();
@@ -110,7 +122,7 @@ function onUp() {
       const first = recent[0];
       const last = recent[recent.length - 1];
       const dt = Math.max(1, last.t - first.t);
-      flickSpeed = Math.hypot(last.x - first.x, last.y - first.y) / dt; // px/ms
+      flickSpeed = Math.hypot(last.x - first.x, last.y - first.y) / dt;
     }
   }
 
@@ -132,7 +144,6 @@ canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, 
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
 function update() {
-  // Camera follows cat while airborne
   if (thrown && !landed) {
     const targetCam = Math.max(0, cat.x - W * 0.4);
     cameraX += (targetCam - cameraX) * 0.12;
@@ -161,7 +172,6 @@ function update() {
     }
   }
 
-  // Camera ease back to house after landing
   if (landed) {
     const targetCam = Math.max(0, cat.x - W * 0.4);
     cameraX += (targetCam - cameraX) * 0.12;
@@ -224,10 +234,9 @@ function drawCat(x, y, rot) {
 }
 
 function drawHouse(x) {
-  // house sits on ground, black outline only
-  const w = 90, h = 80;
-  const bx = x - w / 2;
-  const by = GROUND_Y - h;
+  const bx = x - HOUSE_W / 2;
+  const bodyTop = GROUND_Y - HOUSE_H;
+  const roofPeakY = bodyTop - ROOF_H;
 
   ctx.save();
   ctx.strokeStyle = '#000';
@@ -235,26 +244,76 @@ function drawHouse(x) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // body
-  ctx.strokeRect(bx, by + 30, w, h - 30);
+  // body (walls)
+  ctx.strokeRect(bx, bodyTop, HOUSE_W, HOUSE_H);
 
   // roof
   ctx.beginPath();
-  ctx.moveTo(bx - 8, by + 30);
-  ctx.lineTo(x, by - 5);
-  ctx.lineTo(bx + w + 8, by + 30);
+  ctx.moveTo(bx - 14, bodyTop);
+  ctx.lineTo(x, roofPeakY);
+  ctx.lineTo(bx + HOUSE_W + 14, bodyTop);
   ctx.stroke();
 
   // door
+  const doorW = 40;
+  const doorH = 70;
   ctx.beginPath();
-  ctx.rect(x - 14, GROUND_Y - 34, 28, 34);
+  ctx.rect(x - doorW / 2, GROUND_Y - doorH, doorW, doorH);
   ctx.stroke();
 
-  // window
+  // door knob
   ctx.beginPath();
-  ctx.arc(x + 24, by + 50, 6, 0, Math.PI * 2);
+  ctx.arc(x + doorW / 2 - 8, GROUND_Y - doorH / 2, 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
+
+  // round window on roof
+  ctx.beginPath();
+  ctx.arc(x, bodyTop - ROOF_H * 0.45, 12, 0, Math.PI * 2);
   ctx.stroke();
 
+  // window cross
+  ctx.beginPath();
+  ctx.moveTo(x - 12, bodyTop - ROOF_H * 0.45);
+  ctx.lineTo(x + 12, bodyTop - ROOF_H * 0.45);
+  ctx.moveTo(x, bodyTop - ROOF_H * 0.45 - 12);
+  ctx.lineTo(x, bodyTop - ROOF_H * 0.45 + 12);
+  ctx.stroke();
+
+  // two square windows on the walls
+  const winY = bodyTop + 25;
+  ctx.strokeRect(bx + 18, winY, 26, 26);
+  ctx.strokeRect(bx + HOUSE_W - 44, winY, 26, 26);
+
+  ctx.restore();
+}
+
+function drawPullLine() {
+  if (!dragging || !dragCurrent) return;
+
+  const catScreenX = cat.x - cameraX;
+  const dx = catScreenX - (dragStart.x - cameraX);
+  const dy = cat.y - dragStart.y;
+  const pullDist = Math.hypot(dx, dy);
+  const t = Math.min(1, pullDist / MAX_PULL);
+
+  // Line gets THINNER as you pull further
+  const lineWidth = LINE_MAX_WIDTH - (LINE_MAX_WIDTH - LINE_MIN_WIDTH) * t;
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(0,0,0,' + (0.8 - 0.4 * t) + ')';
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(catScreenX, cat.y);
+  ctx.lineTo(dragCurrent.x, dragCurrent.y);
+  ctx.stroke();
+
+  // small anchor dot at the grab point
+  ctx.beginPath();
+  ctx.arc(dragCurrent.x, dragCurrent.y, 3, 0, Math.PI * 2);
+  ctx.fillStyle = '#000';
+  ctx.fill();
   ctx.restore();
 }
 
@@ -262,13 +321,14 @@ function drawAimLine() {
   if (!dragging || !dragCurrent) return;
   ctx.save();
   ctx.setLineDash([5, 7]);
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(cat.x - cameraX, cat.y);
+  const catScreenX = cat.x - cameraX;
+  ctx.moveTo(catScreenX, cat.y);
   const dx = cat.x - dragStart.x;
   const dy = cat.y - dragStart.y;
-  let px = cat.x - cameraX;
+  let px = catScreenX;
   let py = cat.y;
   let vx = -dx * POWER;
   let vy = -dy * POWER;
@@ -284,7 +344,6 @@ function drawAimLine() {
 }
 
 function drawGround() {
-  // ground line + meters, all offset by camera
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -307,6 +366,7 @@ function draw() {
   ctx.clearRect(0, 0, W, H);
   drawGround();
   drawHouse(houseX - cameraX);
+  drawPullLine();
   drawAimLine();
   drawCat(cat.x - cameraX, cat.y, cat.rot);
 }
