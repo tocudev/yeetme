@@ -13,7 +13,6 @@ const FLICK_MAX = 0.35;
 const LINE_MAX_WIDTH = 6;
 const LINE_MIN_WIDTH = 0.5;
 
-// cat start height above the ground
 const CAT_START_HEIGHT = 220;
 
 let cat = { x: 0, y: 0, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
@@ -29,9 +28,8 @@ let landed = false;
 let maxX = 0;
 let cameraX = 0;
 
-// wings
 let wingsAttached = true;
-let fallingWings = null; // { x, y, vx, vy, rot, vrot }
+let fallingWings = null;
 
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
@@ -90,7 +88,6 @@ function onDown(e) {
     dragCurrent = p;
     mouseHistory = [{ x: p.x, y: p.y, t: performance.now() }];
 
-    // Wings fall off on grab
     if (wingsAttached) {
       wingsAttached = false;
       fallingWings = {
@@ -100,6 +97,7 @@ function onDown(e) {
         vy: -1.5,
         rot: 0,
         vrot: (Math.random() - 0.5) * 0.2,
+        _lastCam: cameraX,
       };
     }
   }
@@ -111,7 +109,6 @@ function onMove(e) {
   mouseHistory.push({ x: dragCurrent.x, y: dragCurrent.y, t: performance.now() });
   if (mouseHistory.length > 10) mouseHistory.shift();
 
-  // Pull is anchored to the cat's ORIGINAL world position
   const dx = dragCurrent.x - (dragStart.x - cameraX);
   const dy = dragCurrent.y - dragStart.y;
   const dist = Math.hypot(dx, dy);
@@ -159,10 +156,10 @@ canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, 
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
 function update() {
-  if (thrown && !landed) {
-    const targetCam = Math.max(0, cat.x - W * 0.4);
-    cameraX += (targetCam - cameraX) * 0.12;
-  }
+  // Camera locked to the cat while flying OR resting
+  const targetCam = cat.x - W * 0.5;
+  const lockedCam = Math.max(0, targetCam);
+  cameraX += (lockedCam - cameraX) * 0.15;
 
   if (thrown && !landed) {
     cat.vy += GRAVITY;
@@ -187,23 +184,15 @@ function update() {
     }
   }
 
-  if (landed) {
-    const targetCam = Math.max(0, cat.x - W * 0.4);
-    cameraX += (targetCam - cameraX) * 0.12;
-  }
-
-  // Falling wings animation
   if (fallingWings) {
     fallingWings.vy += 0.4;
     fallingWings.x += fallingWings.vx;
     fallingWings.y += fallingWings.vy;
     fallingWings.rot += fallingWings.vrot;
 
-    // account for camera drift
     fallingWings.x -= (cameraX - (fallingWings._lastCam || cameraX));
     fallingWings._lastCam = cameraX;
 
-    // land on ground
     if (fallingWings.y > GROUND_Y - 4) {
       fallingWings.y = GROUND_Y - 4;
       fallingWings.vy = 0;
@@ -226,23 +215,19 @@ function drawCat(x, y, rot) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // body
   ctx.beginPath();
   ctx.ellipse(0, 6, 24, 18, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // tail
   ctx.beginPath();
   ctx.moveTo(22, 4);
   ctx.quadraticCurveTo(42, -6, 36, -22);
   ctx.stroke();
 
-  // head
   ctx.beginPath();
   ctx.arc(0, -16, 15, 0, Math.PI * 2);
   ctx.stroke();
 
-  // ears
   ctx.beginPath();
   ctx.moveTo(-12, -26); ctx.lineTo(-16, -40); ctx.lineTo(-3, -30);
   ctx.stroke();
@@ -250,20 +235,17 @@ function drawCat(x, y, rot) {
   ctx.moveTo(12, -26); ctx.lineTo(16, -40); ctx.lineTo(3, -30);
   ctx.stroke();
 
-  // eyes
   ctx.beginPath();
   ctx.arc(-5, -18, 1.8, 0, Math.PI * 2);
   ctx.arc(5, -18, 1.8, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
   ctx.fill();
 
-  // nose
   ctx.beginPath();
   ctx.moveTo(-2, -12); ctx.lineTo(2, -12); ctx.lineTo(0, -9);
   ctx.closePath();
   ctx.fill();
 
-  // whiskers
   ctx.beginPath();
   ctx.moveTo(-8, -10); ctx.lineTo(-20, -12);
   ctx.moveTo(-8, -7);  ctx.lineTo(-20, -5);
@@ -271,13 +253,11 @@ function drawCat(x, y, rot) {
   ctx.moveTo(8, -7);   ctx.lineTo(20, -5);
   ctx.stroke();
 
-  // legs
   ctx.beginPath();
   ctx.moveTo(-12, 22); ctx.lineTo(-12, 28);
   ctx.moveTo(12, 22);  ctx.lineTo(12, 28);
   ctx.stroke();
 
-  // wings (only if attached)
   if (wingsAttached) {
     drawWings(0, -6, 0);
   }
@@ -285,7 +265,6 @@ function drawCat(x, y, rot) {
   ctx.restore();
 }
 
-// draws a single pair of wings centered at (0,0), rotated
 function drawWings(cx, cy, rot) {
   ctx.save();
   ctx.translate(cx, cy);
@@ -295,27 +274,23 @@ function drawWings(cx, cy, rot) {
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // left wing
   ctx.beginPath();
   ctx.moveTo(-10, -4);
   ctx.quadraticCurveTo(-34, -22, -40, -2);
   ctx.quadraticCurveTo(-32, 2, -10, 4);
   ctx.stroke();
 
-  // feather detail left
   ctx.beginPath();
   ctx.moveTo(-20, -12);
   ctx.quadraticCurveTo(-26, -6, -24, 0);
   ctx.stroke();
 
-  // right wing
   ctx.beginPath();
   ctx.moveTo(10, -4);
   ctx.quadraticCurveTo(34, -22, 40, -2);
   ctx.quadraticCurveTo(32, 2, 10, 4);
   ctx.stroke();
 
-  // feather detail right
   ctx.beginPath();
   ctx.moveTo(20, -12);
   ctx.quadraticCurveTo(26, -6, 24, 0);
@@ -336,8 +311,18 @@ function drawPullLine() {
   if (!dragging || !dragCurrent) return;
 
   const catScreenX = cat.x - cameraX;
-  const pullDist = Math.hypot(dragCurrent.x - catScreenX, dragCurrent.y - cat.y);
-  const t = Math.min(1, pullDist / MAX_PULL);
+
+  const anchorX = dragStart.x - cameraX;
+  const anchorY = dragStart.y;
+  const dx = dragCurrent.x - anchorX;
+  const dy = dragCurrent.y - anchorY;
+  const dist = Math.hypot(dx, dy);
+  const clampedDist = Math.min(dist, MAX_PULL);
+  const angle = Math.atan2(dy, dx);
+  const endX = anchorX + Math.cos(angle) * clampedDist;
+  const endY = anchorY + Math.sin(angle) * clampedDist;
+
+  const t = clampedDist / MAX_PULL;
   const lineWidth = LINE_MAX_WIDTH - (LINE_MAX_WIDTH - LINE_MIN_WIDTH) * t;
 
   ctx.save();
@@ -346,11 +331,11 @@ function drawPullLine() {
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(catScreenX, cat.y);
-  ctx.lineTo(dragCurrent.x, dragCurrent.y);
+  ctx.lineTo(endX, endY);
   ctx.stroke();
 
   ctx.beginPath();
-  ctx.arc(dragCurrent.x, dragCurrent.y, 3, 0, Math.PI * 2);
+  ctx.arc(endX, endY, 3, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
   ctx.fill();
   ctx.restore();
@@ -392,7 +377,7 @@ function drawGround() {
 
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.font = '11px "Courier New", monospace';
-  for (let m = 0; m <= 200; m += 5) {
+  for (let m = 0; m <= 500; m += 5) {
     const worldX = startX + m * PIXELS_PER_METER;
     const screenX = worldX - cameraX;
     if (screenX < -20 || screenX > W + 20) continue;
