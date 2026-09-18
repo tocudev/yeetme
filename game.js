@@ -26,13 +26,15 @@ let mouseHistory = [];
 let thrown = false;
 let landed = false;
 let maxX = 0;
+
+// camera tracks both axes
 let cameraX = 0;
+let cameraY = 0;
 
 let wingsAttached = true;
 let fallingWings = null;
 
-// emoji popup state
-let emoji = null; // { text, bornAt, duration, offsetY, rot }
+let emoji = null;
 
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
@@ -64,6 +66,7 @@ function reset() {
   landed = false;
   maxX = startX;
   cameraX = 0;
+  cameraY = 0;
   wingsAttached = true;
   fallingWings = null;
   emoji = null;
@@ -75,7 +78,6 @@ function spawnEmoji(text) {
     text,
     bornAt: performance.now(),
     duration: 900,
-    offsetY: 0,
     rot: (Math.random() - 0.5) * 0.15,
   };
 }
@@ -94,8 +96,9 @@ function onDown(e) {
   if (thrown) return;
   const p = getPos(e);
   const catScreenX = cat.x - cameraX;
+  const catScreenY = cat.y - cameraY;
   const dx = p.x - catScreenX;
-  const dy = p.y - cat.y;
+  const dy = p.y - catScreenY;
   if (Math.hypot(dx, dy) < cat.r * 2.4) {
     dragging = true;
     dragStart = { x: cat.x, y: cat.y };
@@ -106,12 +109,13 @@ function onDown(e) {
       wingsAttached = false;
       fallingWings = {
         x: cat.x - cameraX,
-        y: cat.y - 6,
+        y: cat.y - cameraY - 6,
         vx: (Math.random() - 0.5) * 2,
         vy: -1.5,
         rot: 0,
         vrot: (Math.random() - 0.5) * 0.2,
-        _lastCam: cameraX,
+        _lastCamX: cameraX,
+        _lastCamY: cameraY,
       };
     }
   }
@@ -124,7 +128,7 @@ function onMove(e) {
   if (mouseHistory.length > 10) mouseHistory.shift();
 
   const dx = dragCurrent.x - (dragStart.x - cameraX);
-  const dy = dragCurrent.y - dragStart.y;
+  const dy = dragCurrent.y - (dragStart.y - cameraY);
   const dist = Math.hypot(dx, dy);
   const clamped = Math.min(dist, MAX_PULL);
   const angle = Math.atan2(dy, dx);
@@ -161,7 +165,6 @@ function onUp() {
   thrown = true;
   mouseHistory = [];
 
-  // 😱 shocked emoji the moment it's thrown
   spawnEmoji('😱');
 }
 
@@ -173,9 +176,11 @@ canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, 
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
 function update() {
-  // Faster camera that keeps up with the cat
-  const targetCam = Math.max(0, cat.x - W * 0.5);
-  cameraX += (targetCam - cameraX) * 0.35;
+  // 2D camera: tracks cat horizontally AND vertically, but never below the ground
+  const targetCamX = Math.max(0, cat.x - W * 0.5);
+  const targetCamY = Math.min(0, cat.y - H * 0.5);
+  cameraX += (targetCamX - cameraX) * 0.35;
+  cameraY += (targetCamY - cameraY) * 0.35;
 
   if (thrown && !landed) {
     cat.vy += GRAVITY;
@@ -198,8 +203,8 @@ function update() {
         bestEl.textContent = `Best: ${best.toFixed(1)} m`;
       }
 
-      // 😡 angry emoji on impact
-      spawnEmoji('😡');
+      // Random anger or sob on landing
+      spawnEmoji(Math.random() < 0.5 ? '😡' : '😭');
     }
   }
 
@@ -209,11 +214,16 @@ function update() {
     fallingWings.y += fallingWings.vy;
     fallingWings.rot += fallingWings.vrot;
 
-    fallingWings.x -= (cameraX - (fallingWings._lastCam || cameraX));
-    fallingWings._lastCam = cameraX;
+    // compensate for both camera axes so wings stay in world space
+    fallingWings.x -= (cameraX - (fallingWings._lastCamX || cameraX));
+    fallingWings.y -= (cameraY - (fallingWings._lastCamY || cameraY));
+    fallingWings._lastCamX = cameraX;
+    fallingWings._lastCamY = cameraY;
 
-    if (fallingWings.y > GROUND_Y - 4) {
-      fallingWings.y = GROUND_Y - 4;
+    // ground collision — convert wing's world Y to check
+    const wingWorldY = fallingWings.y + cameraY;
+    if (wingWorldY > GROUND_Y - 4) {
+      fallingWings.y = GROUND_Y - 4 - cameraY;
       fallingWings.vy = 0;
       fallingWings.vx *= 0.6;
       fallingWings.vrot *= 0.5;
@@ -224,7 +234,6 @@ function update() {
     }
   }
 
-  // emoji lifecycle
   if (emoji) {
     const age = performance.now() - emoji.bornAt;
     if (age > emoji.duration) emoji = null;
@@ -335,19 +344,17 @@ function drawFallingWings(w) {
 function drawEmoji() {
   if (!emoji) return;
   const age = performance.now() - emoji.bornAt;
-  const t = age / emoji.duration; // 0 → 1
+  const t = age / emoji.duration;
 
-  // fade in fast, then out
   let alpha;
   if (t < 0.15) alpha = t / 0.15;
   else alpha = 1 - (t - 0.15) / 0.85;
 
-  // drift upward slightly + scale pop
   const offsetY = -t * 30;
   const scale = 1 + Math.sin(Math.min(t, 0.3) / 0.3 * Math.PI) * 0.25;
 
   const screenX = cat.x - cameraX;
-  const screenY = cat.y - 55 + offsetY;
+  const screenY = cat.y - cameraY - 55 + offsetY;
 
   ctx.save();
   ctx.globalAlpha = Math.max(0, alpha);
@@ -365,9 +372,10 @@ function drawPullLine() {
   if (!dragging || !dragCurrent) return;
 
   const catScreenX = cat.x - cameraX;
+  const catScreenY = cat.y - cameraY;
 
   const anchorX = dragStart.x - cameraX;
-  const anchorY = dragStart.y;
+  const anchorY = dragStart.y - cameraY;
   const dx = dragCurrent.x - anchorX;
   const dy = dragCurrent.y - anchorY;
   const dist = Math.hypot(dx, dy);
@@ -384,7 +392,7 @@ function drawPullLine() {
   ctx.lineWidth = lineWidth;
   ctx.lineCap = 'round';
   ctx.beginPath();
-  ctx.moveTo(catScreenX, cat.y);
+  ctx.moveTo(catScreenX, catScreenY);
   ctx.lineTo(endX, endY);
   ctx.stroke();
 
@@ -403,18 +411,19 @@ function drawAimLine() {
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   const catScreenX = cat.x - cameraX;
-  ctx.moveTo(catScreenX, cat.y);
+  const catScreenY = cat.y - cameraY;
+  ctx.moveTo(catScreenX, catScreenY);
   const dx = cat.x - dragStart.x;
   const dy = cat.y - dragStart.y;
   let px = catScreenX;
-  let py = cat.y;
+  let py = catScreenY;
   let vx = -dx * POWER;
   let vy = -dy * POWER;
   for (let i = 0; i < 30; i++) {
     vy += GRAVITY;
     px += vx;
     py += vy;
-    if (py > GROUND_Y) break;
+    if (py + cameraY > GROUND_Y) break;
     ctx.lineTo(px, py);
   }
   ctx.stroke();
@@ -422,11 +431,13 @@ function drawAimLine() {
 }
 
 function drawGround() {
+  const groundScreenY = GROUND_Y - cameraY;
+
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(0, GROUND_Y);
-  ctx.lineTo(W, GROUND_Y);
+  ctx.moveTo(0, groundScreenY);
+  ctx.lineTo(W, groundScreenY);
   ctx.stroke();
 
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
@@ -435,8 +446,8 @@ function drawGround() {
     const worldX = startX + m * PIXELS_PER_METER;
     const screenX = worldX - cameraX;
     if (screenX < -20 || screenX > W + 20) continue;
-    ctx.fillRect(screenX, GROUND_Y, 1, 8);
-    if (m > 0) ctx.fillText(`${m}m`, screenX - 8, GROUND_Y + 22);
+    ctx.fillRect(screenX, groundScreenY, 1, 8);
+    if (m > 0) ctx.fillText(`${m}m`, screenX - 8, groundScreenY + 22);
   }
 }
 
@@ -446,7 +457,7 @@ function draw() {
   if (fallingWings) drawFallingWings(fallingWings);
   drawPullLine();
   drawAimLine();
-  drawCat(cat.x - cameraX, cat.y, cat.rot);
+  drawCat(cat.x - cameraX, cat.y - cameraY, cat.rot);
   drawEmoji();
 }
 
