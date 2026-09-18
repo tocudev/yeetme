@@ -7,16 +7,24 @@ let W, H, GROUND_Y;
 const PIXELS_PER_METER = 40;
 const GRAVITY = 0.5;
 const MAX_PULL = 130;
-const POWER = 0.22;
+const POWER = 0.18;
+const FLICK_BOOST = 0.06; // extra power per pixel of recent mouse speed
+const FLICK_MAX = 0.35;
 
 let cat = { x: 0, y: 0, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
+let houseX = 0;
+
 let dragging = false;
 let dragStart = null;
 let dragCurrent = null;
+let mouseHistory = []; // {x, y, t} for flick detection
+
 let thrown = false;
 let landed = false;
 let maxX = 0;
 let startX = 0;
+let cameraX = 0;
+
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
 
@@ -30,18 +38,20 @@ function resize() {
   canvas.style.height = H + 'px';
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   GROUND_Y = H * 0.78;
-  startX = W * 0.25;
+  startX = W * 0.3;
+  houseX = startX;
   if (!thrown && !landed) {
     cat.x = startX;
-    cat.y = GROUND_Y - cat.r;
+    cat.y = GROUND_Y - cat.r - 40;
   }
 }
 
 function reset() {
-  cat = { x: startX, y: GROUND_Y - 26, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
+  cat = { x: startX, y: GROUND_Y - 26 - 40, vx: 0, vy: 0, r: 26, rot: 0, vrot: 0 };
   thrown = false;
   landed = false;
   maxX = startX;
+  cameraX = 0;
   distanceEl.textContent = '0.0 m';
 }
 
@@ -58,18 +68,22 @@ function onDown(e) {
   if (thrown && landed) { reset(); return; }
   if (thrown) return;
   const p = getPos(e);
-  const dx = p.x - cat.x;
+  const dx = p.x - (cat.x - cameraX);
   const dy = p.y - cat.y;
   if (Math.hypot(dx, dy) < cat.r * 2.2) {
     dragging = true;
     dragStart = { x: cat.x, y: cat.y };
     dragCurrent = p;
+    mouseHistory = [{ x: p.x, y: p.y, t: performance.now() }];
   }
 }
 
 function onMove(e) {
   if (!dragging) return;
   dragCurrent = getPos(e);
+  mouseHistory.push({ x: dragCurrent.x, y: dragCurrent.y, t: performance.now() });
+  if (mouseHistory.length > 10) mouseHistory.shift();
+
   const dx = dragCurrent.x - dragStart.x;
   const dy = dragCurrent.y - dragStart.y;
   const dist = Math.hypot(dx, dy);
@@ -82,13 +96,32 @@ function onMove(e) {
 function onUp() {
   if (!dragging) return;
   dragging = false;
+
   const dx = cat.x - dragStart.x;
   const dy = cat.y - dragStart.y;
-  if (Math.hypot(dx, dy) < 5) return;
-  cat.vx = -dx * POWER;
-  cat.vy = -dy * POWER;
+  if (Math.hypot(dx, dy) < 5) { mouseHistory = []; return; }
+
+  // Flick detection: distance traveled in last ~80ms
+  let flickSpeed = 0;
+  if (mouseHistory.length >= 2) {
+    const now = performance.now();
+    const recent = mouseHistory.filter(p => now - p.t < 80);
+    if (recent.length >= 2) {
+      const first = recent[0];
+      const last = recent[recent.length - 1];
+      const dt = Math.max(1, last.t - first.t);
+      flickSpeed = Math.hypot(last.x - first.x, last.y - first.y) / dt; // px/ms
+    }
+  }
+
+  const flickBoost = Math.min(FLICK_MAX, flickSpeed * FLICK_BOOST);
+  const totalPower = POWER + flickBoost;
+
+  cat.vx = -dx * totalPower;
+  cat.vy = -dy * totalPower;
   cat.vrot = cat.vx * 0.05;
   thrown = true;
+  mouseHistory = [];
 }
 
 canvas.addEventListener('mousedown', onDown);
@@ -99,6 +132,12 @@ canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, 
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
 function update() {
+  // Camera follows cat while airborne
+  if (thrown && !landed) {
+    const targetCam = Math.max(0, cat.x - W * 0.4);
+    cameraX += (targetCam - cameraX) * 0.12;
+  }
+
   if (thrown && !landed) {
     cat.vy += GRAVITY;
     cat.x += cat.vx;
@@ -107,17 +146,25 @@ function update() {
 
     if (cat.x > maxX) maxX = cat.x;
 
+    const dist = (maxX - startX) / PIXELS_PER_METER;
+    distanceEl.textContent = `${dist.toFixed(1)} m`;
+
     if (cat.y + cat.r >= GROUND_Y) {
       cat.y = GROUND_Y - cat.r;
       landed = true;
-      const dist = (maxX - startX) / PIXELS_PER_METER;
-      distanceEl.textContent = `${dist.toFixed(1)} m`;
-      if (dist > best) {
-        best = dist;
+      const finalDist = (maxX - startX) / PIXELS_PER_METER;
+      if (finalDist > best) {
+        best = finalDist;
         localStorage.setItem('yeetCatBest', best);
         bestEl.textContent = `Best: ${best.toFixed(1)} m`;
       }
     }
+  }
+
+  // Camera ease back to house after landing
+  if (landed) {
+    const targetCam = Math.max(0, cat.x - W * 0.4);
+    cameraX += (targetCam - cameraX) * 0.12;
   }
 }
 
@@ -125,57 +172,42 @@ function drawCat(x, y, rot) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(rot);
-
   ctx.strokeStyle = '#000';
   ctx.lineWidth = 3;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  // body
   ctx.beginPath();
   ctx.ellipse(0, 6, 24, 18, 0, 0, Math.PI * 2);
   ctx.stroke();
 
-  // tail
   ctx.beginPath();
   ctx.moveTo(22, 4);
   ctx.quadraticCurveTo(42, -6, 36, -22);
   ctx.stroke();
 
-  // head
   ctx.beginPath();
   ctx.arc(0, -16, 15, 0, Math.PI * 2);
   ctx.stroke();
 
-  // ears
   ctx.beginPath();
-  ctx.moveTo(-12, -26);
-  ctx.lineTo(-16, -40);
-  ctx.lineTo(-3, -30);
+  ctx.moveTo(-12, -26); ctx.lineTo(-16, -40); ctx.lineTo(-3, -30);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(12, -26); ctx.lineTo(16, -40); ctx.lineTo(3, -30);
   ctx.stroke();
 
-  ctx.beginPath();
-  ctx.moveTo(12, -26);
-  ctx.lineTo(16, -40);
-  ctx.lineTo(3, -30);
-  ctx.stroke();
-
-  // eyes
   ctx.beginPath();
   ctx.arc(-5, -18, 1.8, 0, Math.PI * 2);
   ctx.arc(5, -18, 1.8, 0, Math.PI * 2);
   ctx.fillStyle = '#000';
   ctx.fill();
 
-  // nose
   ctx.beginPath();
-  ctx.moveTo(-2, -12);
-  ctx.lineTo(2, -12);
-  ctx.lineTo(0, -9);
+  ctx.moveTo(-2, -12); ctx.lineTo(2, -12); ctx.lineTo(0, -9);
   ctx.closePath();
   ctx.fill();
 
-  // whiskers
   ctx.beginPath();
   ctx.moveTo(-8, -10); ctx.lineTo(-20, -12);
   ctx.moveTo(-8, -7);  ctx.lineTo(-20, -5);
@@ -183,10 +215,44 @@ function drawCat(x, y, rot) {
   ctx.moveTo(8, -7);   ctx.lineTo(20, -5);
   ctx.stroke();
 
-  // legs
   ctx.beginPath();
   ctx.moveTo(-12, 22); ctx.lineTo(-12, 28);
   ctx.moveTo(12, 22);  ctx.lineTo(12, 28);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawHouse(x) {
+  // house sits on ground, black outline only
+  const w = 90, h = 80;
+  const bx = x - w / 2;
+  const by = GROUND_Y - h;
+
+  ctx.save();
+  ctx.strokeStyle = '#000';
+  ctx.lineWidth = 3;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+
+  // body
+  ctx.strokeRect(bx, by + 30, w, h - 30);
+
+  // roof
+  ctx.beginPath();
+  ctx.moveTo(bx - 8, by + 30);
+  ctx.lineTo(x, by - 5);
+  ctx.lineTo(bx + w + 8, by + 30);
+  ctx.stroke();
+
+  // door
+  ctx.beginPath();
+  ctx.rect(x - 14, GROUND_Y - 34, 28, 34);
+  ctx.stroke();
+
+  // window
+  ctx.beginPath();
+  ctx.arc(x + 24, by + 50, 6, 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.restore();
@@ -199,12 +265,14 @@ function drawAimLine() {
   ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(cat.x, cat.y);
+  ctx.moveTo(cat.x - cameraX, cat.y);
   const dx = cat.x - dragStart.x;
   const dy = cat.y - dragStart.y;
-  let px = cat.x, py = cat.y;
-  let vx = -dx * POWER, vy = -dy * POWER;
-  for (let i = 0; i < 26; i++) {
+  let px = cat.x - cameraX;
+  let py = cat.y;
+  let vx = -dx * POWER;
+  let vy = -dy * POWER;
+  for (let i = 0; i < 30; i++) {
     vy += GRAVITY;
     px += vx;
     py += vy;
@@ -216,6 +284,7 @@ function drawAimLine() {
 }
 
 function drawGround() {
+  // ground line + meters, all offset by camera
   ctx.strokeStyle = 'rgba(0,0,0,0.15)';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -225,19 +294,21 @@ function drawGround() {
 
   ctx.fillStyle = 'rgba(0,0,0,0.35)';
   ctx.font = '11px "Courier New", monospace';
-  for (let m = 5; m <= 40; m += 5) {
-    const x = startX + m * PIXELS_PER_METER;
-    if (x > W) break;
-    ctx.fillRect(x, GROUND_Y, 1, 8);
-    ctx.fillText(`${m}m`, x - 8, GROUND_Y + 22);
+  for (let m = 0; m <= 200; m += 5) {
+    const worldX = startX + m * PIXELS_PER_METER;
+    const screenX = worldX - cameraX;
+    if (screenX < -20 || screenX > W + 20) continue;
+    ctx.fillRect(screenX, GROUND_Y, 1, 8);
+    if (m > 0) ctx.fillText(`${m}m`, screenX - 8, GROUND_Y + 22);
   }
 }
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
   drawGround();
+  drawHouse(houseX - cameraX);
   drawAimLine();
-  drawCat(cat.x, cat.y, cat.rot);
+  drawCat(cat.x - cameraX, cat.y, cat.rot);
 }
 
 function loop() {
