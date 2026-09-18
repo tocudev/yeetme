@@ -27,7 +27,6 @@ let thrown = false;
 let landed = false;
 let maxX = 0;
 
-// camera tracks both axes
 let cameraX = 0;
 let cameraY = 0;
 
@@ -36,8 +35,14 @@ let fallingWings = null;
 
 let emoji = null;
 
+let darkMode = false;
+
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
+
+// --- ink helpers so everything swaps with dark mode ---
+function ink() { return darkMode ? '#fff' : '#000'; }
+function faint(a) { return darkMode ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`; }
 
 function resize() {
   const dpr = window.devicePixelRatio || 1;
@@ -175,8 +180,14 @@ canvas.addEventListener('touchstart', (e) => { e.preventDefault(); onDown(e); },
 canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, { passive: false });
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'f' || e.key === 'F') {
+    darkMode = !darkMode;
+    document.body.classList.toggle('dark', darkMode);
+  }
+});
+
 function update() {
-  // 2D camera: tracks cat horizontally AND vertically, but never below the ground
   const targetCamX = Math.max(0, cat.x - W * 0.5);
   const targetCamY = Math.min(0, cat.y - H * 0.5);
   cameraX += (targetCamX - cameraX) * 0.35;
@@ -203,7 +214,6 @@ function update() {
         bestEl.textContent = `Best: ${best.toFixed(1)} m`;
       }
 
-      // Random anger or sob on landing
       spawnEmoji(Math.random() < 0.5 ? '😡' : '😭');
     }
   }
@@ -214,13 +224,11 @@ function update() {
     fallingWings.y += fallingWings.vy;
     fallingWings.rot += fallingWings.vrot;
 
-    // compensate for both camera axes so wings stay in world space
     fallingWings.x -= (cameraX - (fallingWings._lastCamX || cameraX));
     fallingWings.y -= (cameraY - (fallingWings._lastCamY || cameraY));
     fallingWings._lastCamX = cameraX;
     fallingWings._lastCamY = cameraY;
 
-    // ground collision — convert wing's world Y to check
     const wingWorldY = fallingWings.y + cameraY;
     if (wingWorldY > GROUND_Y - 4) {
       fallingWings.y = GROUND_Y - 4 - cameraY;
@@ -244,7 +252,7 @@ function drawCat(x, y, rot) {
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(rot);
-  ctx.strokeStyle = '#000';
+  ctx.strokeStyle = ink();
   ctx.lineWidth = 3;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -272,7 +280,7 @@ function drawCat(x, y, rot) {
   ctx.beginPath();
   ctx.arc(-5, -18, 1.8, 0, Math.PI * 2);
   ctx.arc(5, -18, 1.8, 0, Math.PI * 2);
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = ink();
   ctx.fill();
 
   ctx.beginPath();
@@ -303,7 +311,7 @@ function drawWings(cx, cy, rot) {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rot);
-  ctx.strokeStyle = '#000';
+  ctx.strokeStyle = ink();
   ctx.lineWidth = 2.5;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -388,7 +396,7 @@ function drawPullLine() {
   const lineWidth = LINE_MAX_WIDTH - (LINE_MAX_WIDTH - LINE_MIN_WIDTH) * t;
 
   ctx.save();
-  ctx.strokeStyle = 'rgba(0,0,0,' + (0.8 - 0.4 * t) + ')';
+  ctx.strokeStyle = faint(0.8 - 0.4 * t);
   ctx.lineWidth = lineWidth;
   ctx.lineCap = 'round';
   ctx.beginPath();
@@ -398,7 +406,7 @@ function drawPullLine() {
 
   ctx.beginPath();
   ctx.arc(endX, endY, 3, 0, Math.PI * 2);
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = ink();
   ctx.fill();
   ctx.restore();
 }
@@ -407,7 +415,7 @@ function drawAimLine() {
   if (!dragging || !dragCurrent) return;
   ctx.save();
   ctx.setLineDash([5, 7]);
-  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.strokeStyle = faint(darkMode ? 0.35 : 0.25);
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   const catScreenX = cat.x - cameraX;
@@ -433,14 +441,14 @@ function drawAimLine() {
 function drawGround() {
   const groundScreenY = GROUND_Y - cameraY;
 
-  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.strokeStyle = faint(0.15);
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(0, groundScreenY);
   ctx.lineTo(W, groundScreenY);
   ctx.stroke();
 
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillStyle = faint(0.35);
   ctx.font = '11px "Courier New", monospace';
   for (let m = 0; m <= 500; m += 5) {
     const worldX = startX + m * PIXELS_PER_METER;
