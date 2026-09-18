@@ -12,6 +12,13 @@ html, body {
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+body.dark {
+  background-color: #0a0a0a;
+  background-image: radial-gradient(#2a2a2a 2px, transparent 2px);
+  color: #fff;
 }
 
 canvas {
