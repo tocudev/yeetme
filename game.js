@@ -31,6 +31,9 @@ let cameraX = 0;
 let wingsAttached = true;
 let fallingWings = null;
 
+// emoji popup state
+let emoji = null; // { text, bornAt, duration, offsetY, rot }
+
 let best = parseFloat(localStorage.getItem('yeetCatBest') || '0');
 bestEl.textContent = `Best: ${best.toFixed(1)} m`;
 
@@ -63,7 +66,18 @@ function reset() {
   cameraX = 0;
   wingsAttached = true;
   fallingWings = null;
+  emoji = null;
   distanceEl.textContent = '0.0 m';
+}
+
+function spawnEmoji(text) {
+  emoji = {
+    text,
+    bornAt: performance.now(),
+    duration: 900,
+    offsetY: 0,
+    rot: (Math.random() - 0.5) * 0.15,
+  };
 }
 
 function getPos(e) {
@@ -146,6 +160,9 @@ function onUp() {
   cat.vrot = cat.vx * 0.05;
   thrown = true;
   mouseHistory = [];
+
+  // 😱 shocked emoji the moment it's thrown
+  spawnEmoji('😱');
 }
 
 canvas.addEventListener('mousedown', onDown);
@@ -156,10 +173,9 @@ canvas.addEventListener('touchmove', (e) => { e.preventDefault(); onMove(e); }, 
 canvas.addEventListener('touchend', (e) => { e.preventDefault(); onUp(e); }, { passive: false });
 
 function update() {
-  // Camera locked to the cat while flying OR resting
-  const targetCam = cat.x - W * 0.5;
-  const lockedCam = Math.max(0, targetCam);
-  cameraX += (lockedCam - cameraX) * 0.15;
+  // Faster camera that keeps up with the cat
+  const targetCam = Math.max(0, cat.x - W * 0.5);
+  cameraX += (targetCam - cameraX) * 0.35;
 
   if (thrown && !landed) {
     cat.vy += GRAVITY;
@@ -181,6 +197,9 @@ function update() {
         localStorage.setItem('yeetCatBest', best);
         bestEl.textContent = `Best: ${best.toFixed(1)} m`;
       }
+
+      // 😡 angry emoji on impact
+      spawnEmoji('😡');
     }
   }
 
@@ -203,6 +222,12 @@ function update() {
         fallingWings.vrot = 0;
       }
     }
+  }
+
+  // emoji lifecycle
+  if (emoji) {
+    const age = performance.now() - emoji.bornAt;
+    if (age > emoji.duration) emoji = null;
   }
 }
 
@@ -307,6 +332,35 @@ function drawFallingWings(w) {
   ctx.restore();
 }
 
+function drawEmoji() {
+  if (!emoji) return;
+  const age = performance.now() - emoji.bornAt;
+  const t = age / emoji.duration; // 0 → 1
+
+  // fade in fast, then out
+  let alpha;
+  if (t < 0.15) alpha = t / 0.15;
+  else alpha = 1 - (t - 0.15) / 0.85;
+
+  // drift upward slightly + scale pop
+  const offsetY = -t * 30;
+  const scale = 1 + Math.sin(Math.min(t, 0.3) / 0.3 * Math.PI) * 0.25;
+
+  const screenX = cat.x - cameraX;
+  const screenY = cat.y - 55 + offsetY;
+
+  ctx.save();
+  ctx.globalAlpha = Math.max(0, alpha);
+  ctx.translate(screenX, screenY);
+  ctx.rotate(emoji.rot);
+  ctx.scale(scale, scale);
+  ctx.font = '40px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji.text, 0, 0);
+  ctx.restore();
+}
+
 function drawPullLine() {
   if (!dragging || !dragCurrent) return;
 
@@ -393,6 +447,7 @@ function draw() {
   drawPullLine();
   drawAimLine();
   drawCat(cat.x - cameraX, cat.y, cat.rot);
+  drawEmoji();
 }
 
 function loop() {
